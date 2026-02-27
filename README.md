@@ -105,6 +105,16 @@ bash <(wget -qO- https://raw.githubusercontent.com/yimouleng/Auto-Seedbox-PT/mai
 
 ---
 
+## <a id="uninstall"></a>🗑️ 卸载与清理
+
+> `--uninstall` 会清理服务/容器/配置，并回滚 sysctl、limits、扩展服务与相关规则（可交互选择是否删除 Downloads 数据目录）。
+
+```bash
+bash <(wget -qO- https://raw.githubusercontent.com/yimouleng/Auto-Seedbox-PT/main/auto_seedbox_pt.sh) --uninstall
+```
+
+---
+
 ## <a id="architecture"></a>🚀 架构解析
 
 刷流瓶颈通常由三类因素交替主导：
@@ -117,17 +127,24 @@ bash <(wget -qO- https://raw.githubusercontent.com/yimouleng/Auto-Seedbox-PT/mai
 - 安装阶段按 **V4/V5、Mode 1/2、SSD/HDD、内存档位** 下发静态参数；
 - Mode 1 可选启用 `-a`：运行时采样内存压力，自动在 **Boost / Guard** 间切换，避免需要人工盯盘。
 
+### `-a`（仅 `-m 1` 生效）什么时候开？
+
+`-a` 会启动 **Mode 1 动态控制器**：定时采样内存压力，必要时自动“收敛连接建立/并发水位”，避免刷流时卡顿或 OOM。
+
+**建议开启（刷流/抢种用户优先）：**
+- 并发高：种子多、连接多、经常爆发满速
+- 机器中等资源：**6–16GB 内存**（最容易在爆发期抖动）
+- 曾出现：掉速/短时卡死/qB 被 OOM 或频繁重启
+
+**可以不启用：**
+- 追求完全静态参数、结果可复现
+- 资源很充足：**≥32GB 内存**且负载长期稳定
+- 主要是长期保种：直接用 `-m 2` 更合适
+
+> PSI 不可用时 `-a` 自动退化为 MemAvailable 判断，仍可作为护栏使用。
+
 ---
 
-## <a id="uninstall"></a>🗑️ 卸载与清理
-
-> `--uninstall` 会清理服务/容器/配置，并回滚 sysctl、limits、扩展服务与相关规则（可交互选择是否删除 Downloads 数据目录）。
-
-```bash
-bash <(wget -qO- https://raw.githubusercontent.com/yimouleng/Auto-Seedbox-PT/main/auto_seedbox_pt.sh) --uninstall
-```
-
----
 
 ## <a id="recommendations"></a>✅ 推荐方案
 
