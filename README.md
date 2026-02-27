@@ -60,7 +60,7 @@ bash <(wget -qO- https://raw.githubusercontent.com/yimouleng/Auto-Seedbox-PT/mai
   -u 用户名 -p 密码 -q 5 -m 1 -v -f -t -a
 ```
 
-### 2) G9.5 / 8G 常见刷流（推荐 v4.3.9 + Mode 1，可选 `-a`）
+### 2) G9.5 / 8G 常见刷流（推荐 v4+M1，可选 `-a`）
 ```bash
 bash <(wget -qO- https://raw.githubusercontent.com/yimouleng/Auto-Seedbox-PT/main/auto_seedbox_pt.sh) \
   -u 用户名 -p 密码 -q 4.3.9 -m 1 -v -f -t -a
@@ -116,11 +116,6 @@ bash <(wget -qO- https://raw.githubusercontent.com/yimouleng/Auto-Seedbox-PT/mai
 本项目采用 **静态基线 +（可选）动态闭环** 的方式：
 - 安装阶段按 **V4/V5、Mode 1/2、SSD/HDD、内存档位** 下发静态参数；
 - Mode 1 可选启用 `-a`：运行时采样内存压力，自动在 **Boost / Guard** 间切换，避免需要人工盯盘。
-
-动态控制器日志：
-```bash
-journalctl -t asp-qb-autotune -n 50
-```
 
 ---
 
