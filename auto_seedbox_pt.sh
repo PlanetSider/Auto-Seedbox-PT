@@ -38,6 +38,7 @@ QB_BT_PORT=20000
 VX_PORT=3000
 FB_PORT=8081
 MI_PORT=8082
+SS_PORT=8083
 
 APP_USER="admin"
 APP_PASS=""
@@ -311,6 +312,27 @@ uninstall() {
         echo -e "${YELLOW}=================================================${NC}"
     fi
 
+    # 二次确认：Vertex 删除由用户确认
+    # Vertex purge confirmation
+    local vx_detected="false"
+    if command -v docker >/dev/null 2>&1; then
+        docker ps -a --format "{{.Names}}" 2>/dev/null | grep -qx "vertex" && vx_detected="true"
+    fi
+    if [[ -d "$target_home/vertex" || -d "/root/vertex" ]]; then
+        vx_detected="true"
+    fi
+
+    local VX_PURGE="Y"
+    echo -e "${YELLOW}=================================================${NC}"
+    if [[ "$vx_detected" == "true" ]]; then
+        log_warn "检测到 Vertex 容器或数据痕迹，删除后不可恢复。"
+    else
+        log_warn "未检测到明显 Vertex 痕迹，但你仍可手动选择执行 Vertex 清理。"
+    fi
+    read -p "是否删除 Vertex（容器/镜像/数据）？[Y/n]: " VX_PURGE < /dev/tty
+    VX_PURGE=${VX_PURGE:-Y}
+    echo -e "${YELLOW}=================================================${NC}"
+
     execute_with_spinner "停止并移除服务守护进程" sh -c "
         systemctl stop qbittorrent-nox@${target_user} 2>/dev/null || true
         systemctl disable qbittorrent-nox@${target_user} 2>/dev/null || true
@@ -350,11 +372,11 @@ uninstall() {
     "
 
     if command -v docker >/dev/null; then
-        execute_with_spinner "清理 Docker 镜像与容器残留" sh -c "
-            docker rm -f vertex 2>/dev/null || true
-            if [[ "${FB_PURGE:-Y}" =~ ^[Yy]$ ]]; then docker rm -f filebrowser 2>/dev/null || true; fi
-            docker rmi lswl/vertex:stable 2>/dev/null || true
-            if [[ "${FB_PURGE:-Y}" =~ ^[Yy]$ ]]; then docker rmi filebrowser/filebrowser:latest 2>/dev/null || true; fi
+        execute_with_spinner "清理 Docker 镜像与容器残留" bash -c "
+            if [[ \"${VX_PURGE:-Y}\" =~ ^[Yy]$ ]]; then docker rm -f vertex 2>/dev/null || true; fi
+            if [[ \"${FB_PURGE:-Y}\" =~ ^[Yy]$ ]]; then docker rm -f filebrowser 2>/dev/null || true; fi
+            if [[ \"${VX_PURGE:-Y}\" =~ ^[Yy]$ ]]; then docker rmi lswl/vertex:stable 2>/dev/null || true; fi
+            if [[ \"${FB_PURGE:-Y}\" =~ ^[Yy]$ ]]; then docker rmi filebrowser/filebrowser:latest 2>/dev/null || true; fi
             docker network prune -f >/dev/null 2>&1 || true
         "
     fi
@@ -440,8 +462,10 @@ uninstall() {
 
     log_warn "清理配置文件..."
     if [[ -d "$target_home" ]]; then
-rm -rf "$target_home/.config/qBittorrent" "$target_home/.local/share/qBittorrent" "$target_home/.cache/qBittorrent" \
-               "$target_home/vertex"
+        rm -rf "$target_home/.config/qBittorrent" "$target_home/.local/share/qBittorrent" "$target_home/.cache/qBittorrent"
+        if [[ "${VX_PURGE:-Y}" =~ ^[Yy]$ ]]; then
+            rm -rf "$target_home/vertex"
+        fi
 if [[ "${FB_PURGE:-Y}" =~ ^[Yy]$ ]]; then
     rm -rf "$target_home/.config/filebrowser" "$target_home/filebrowser_data" "$target_home/fb.db"
 fi
@@ -464,8 +488,10 @@ log_info "已清理 $target_home 下的配置文件。"
 
     rm -f "$AUTOTUNE_OPTIN_FLAG" 2>/dev/null || true
 
-    rm -rf "/root/.config/qBittorrent" "/root/.local/share/qBittorrent" "/root/.cache/qBittorrent" \
-           "/root/vertex" "$ASP_ENV_FILE"
+    rm -rf "/root/.config/qBittorrent" "/root/.local/share/qBittorrent" "/root/.cache/qBittorrent" "$ASP_ENV_FILE"
+    if [[ "${VX_PURGE:-Y}" =~ ^[Yy]$ ]]; then
+        rm -rf "/root/vertex"
+    fi
     if [[ "${FB_PURGE:-Y}" =~ ^[Yy]$ ]]; then
         rm -rf "/root/.config/filebrowser" "/root/filebrowser_data" "/root/fb.db"
     fi
@@ -1535,9 +1561,13 @@ find "$HB/vertex/data/script" -type f \( -name "*.sh" -o -name "*.py" \) -exec c
             execute_with_spinner "安装 Nginx" sh -c "apt-get update -qq && apt-get install -y nginx"
         fi
 
-        local JS_REMOTE_URL="https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/main/asp-mediainfo.js"
-        execute_with_spinner "拉取 MediaInfo 前端扩展" wget -qO /usr/local/bin/asp-mediainfo.js "$JS_REMOTE_URL"
+        local JS_REMOTE_URL="https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/screenshot/asp-mediainfo.js"
+        execute_with_spinner "拉取 MediaInfo 前端扩展" sh -c "wget -qO /usr/local/bin/asp-mediainfo.js \"${JS_REMOTE_URL}?v=$(date +%s%N)\""
         execute_with_spinner "拉取 SweetAlert2" wget -qO /usr/local/bin/sweetalert2.all.min.js "https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"
+# Screenshot 前端扩展（从 GitHub 拉取，带 cache-buster 防止中间缓存）
+local SS_JS_URL="https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/screenshot/asp-screenshot.js"
+execute_with_spinner "拉取 Screenshot 截图扩展" sh -c "wget -qO /usr/local/bin/asp-screenshot.js \"${SS_JS_URL}?v=$(date +%s%N)\""
+chmod +x /usr/local/bin/asp-screenshot.js
 
         cat > /usr/local/bin/asp-mediainfo.py << 'EOF_PY'
 import http.server, socketserver, urllib.parse, subprocess, json, os, sys
@@ -1602,7 +1632,245 @@ with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
 EOF_PY
         chmod +x /usr/local/bin/asp-mediainfo.py
 
-        cat > /etc/systemd/system/asp-mediainfo.service << EOF
+        # ================= 截图功能（FileBrowser 内一键截图） =================
+        # 前端注入脚本：asp-screenshot.js（依赖 SweetAlert2，已在本脚本中拉取）
+
+        # 后端截图服务：asp-screenshot.py（调用 ffmpeg 抽帧，输出到 /tmp）
+        cat > /usr/local/bin/asp-screenshot.py << 'EOF_PY_SS'
+import http.server, socketserver, urllib.parse, subprocess, json, os, sys, time, shutil, uuid, zipfile
+
+PORT = int(sys.argv[2])
+BASE_DIR = sys.argv[1]
+OUT_ROOT = "/tmp/asp_screens"
+
+def safe_join(base, rel):
+    rel = (rel or "").lstrip("/")
+    full = os.path.abspath(os.path.join(base, rel))
+    base_abs = os.path.abspath(base)
+    if not full.startswith(base_abs + os.sep) and full != base_abs:
+        return None
+    return full
+
+def cleanup_old(max_age_sec=48*3600, max_dirs=200):
+    try:
+        if not os.path.isdir(OUT_ROOT):
+            return
+        now = time.time()
+        items = []
+        for name in os.listdir(OUT_ROOT):
+            p = os.path.join(OUT_ROOT, name)
+            if os.path.isdir(p):
+                try:
+                    st = os.stat(p)
+                    items.append((st.st_mtime, p))
+                except Exception:
+                    pass
+        items.sort()  # oldest first
+        removed = 0
+        for mtime, p in items:
+            if removed >= 40:
+                break
+            if (now - mtime) > max_age_sec:
+                shutil.rmtree(p, ignore_errors=True)
+                removed += 1
+        if len(items) > max_dirs:
+            for _, p in items[: max(0, len(items) - max_dirs)]:
+                shutil.rmtree(p, ignore_errors=True)
+    except Exception:
+        pass
+
+def ffprobe_meta(path):
+    """Return dict: width,height,duration (may be None)"""
+    meta = {"width": None, "height": None, "duration": None}
+    # duration
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", path],
+            capture_output=True, text=True, timeout=12
+        )
+        s = (r.stdout or "").strip()
+        if s:
+            meta["duration"] = float(s)
+    except Exception:
+        pass
+    # width/height from first video stream
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height",
+             "-of", "json", path],
+            capture_output=True, text=True, timeout=12
+        )
+        j = json.loads(r.stdout or "{}")
+        streams = j.get("streams") or []
+        if streams:
+            meta["width"] = int(streams[0].get("width")) if streams[0].get("width") else None
+            meta["height"] = int(streams[0].get("height")) if streams[0].get("height") else None
+    except Exception:
+        pass
+    return meta
+
+def make_timestamps(dur, n, head_pct, tail_pct):
+    if not dur or dur <= 0 or n <= 0:
+        return [1.0] * n
+    if n == 1:
+        return [max(0.0, dur * 0.5)]
+    head = max(0.0, min(head_pct, 49.0)) / 100.0
+    tail = max(0.0, min(tail_pct, 49.0)) / 100.0
+    start = dur * head
+    end = dur * (1.0 - tail)
+    if end <= start + 1.0:
+        start = 0.0
+        end = max(1.0, dur * 0.9)
+    step = (end - start) / (n - 1)
+    return [max(0.0, start + i * step) for i in range(n)]
+
+def make_zip(out_dir, files, zip_name="screenshots.zip"):
+    zip_path = os.path.join(out_dir, zip_name)
+    try:
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            for f in files:
+                fp = os.path.join(out_dir, f)
+                if os.path.isfile(fp):
+                    z.write(fp, arcname=f)
+        if os.path.isfile(zip_path) and os.path.getsize(zip_path) > 0:
+            return zip_name
+    except Exception:
+        pass
+    return None
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def _send(self, code, payload):
+        b = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != "/api/ss":
+            self._send(404, {"error": "not found"})
+            return
+
+        qs = urllib.parse.parse_qs(parsed.query)
+        rel = qs.get("file", [""])[0]
+
+        def geti(key, default):
+            try:
+                return int(qs.get(key, [str(default)])[0] or default)
+            except Exception:
+                return default
+
+        probe = (qs.get("probe", ["0"])[0] or "0").strip()  # 1 => probe only
+
+        full = safe_join(BASE_DIR, rel)
+        if not full or not os.path.isfile(full):
+            self._send(400, {"error": "非法路径或文件不存在"})
+            return
+
+        if probe in ("1", "true", "yes"):
+            meta = ffprobe_meta(full)
+            self._send(200, {"meta": meta})
+            return
+
+        n = geti("n", 6)
+        width = geti("width", 1280)
+        head = geti("head", 5)
+        tail = geti("tail", 5)
+        fmt = (qs.get("fmt", ["jpg"])[0] or "jpg").lower()
+        zip_on = (qs.get("zip", ["1"])[0] or "1").strip()
+
+        n = max(1, min(n, 20))
+        width = max(320, min(width, 3840))
+        head = max(0, min(head, 49))
+        tail = max(0, min(tail, 49))
+        if fmt not in ("jpg", "jpeg", "png"):
+            fmt = "jpg"
+        make_zip_on = zip_on not in ("0", "false", "no")
+
+        os.makedirs(OUT_ROOT, exist_ok=True)
+        cleanup_old()
+
+        token = uuid.uuid4().hex
+        out_dir = os.path.join(OUT_ROOT, token)
+        os.makedirs(out_dir, exist_ok=True)
+
+        meta = ffprobe_meta(full)
+        dur = meta.get("duration")
+        ts = make_timestamps(dur, n, head, tail)
+
+        files = []
+        for i, t in enumerate(ts, start=1):
+            out_name = f"{i}.{fmt}"
+            out_path = os.path.join(out_dir, out_name)
+            vf = f"scale={width}:-2"
+            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error",
+                   "-ss", f"{t:.3f}", "-i", full,
+                   "-frames:v", "1", "-an",
+                   "-vf", vf]
+            if fmt in ("jpg", "jpeg"):
+                cmd += ["-q:v", "2"]
+            cmd += ["-y", out_path]
+            try:
+                subprocess.run(cmd, timeout=35, check=True)
+                if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+                    files.append(out_name)
+            except Exception:
+                pass
+
+        if not files:
+            try:
+                shutil.rmtree(out_dir, ignore_errors=True)
+            except Exception:
+                pass
+            self._send(500, {"error": "截图失败：ffmpeg 执行失败或文件不支持"})
+            return
+
+        zip_file = make_zip(out_dir, files) if make_zip_on else None
+
+        payload = {
+            "base": f"/__asp_ss__/{token}/",
+            "files": files,
+            "zip": zip_file,
+            "params": {"n": n, "width": width, "head": head, "tail": tail, "fmt": fmt},
+            "meta": meta
+        }
+        self._send(200, payload)
+
+socketserver.TCPServer.allow_reuse_address = True
+with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
+    httpd.serve_forever()
+EOF_PY_SS
+        chmod +x /usr/local/bin/asp-screenshot.py
+
+        cat > /etc/systemd/system/asp-screenshot.service << EOF
+[Unit]
+Description=ASP Screenshot API Service (ffmpeg)
+After=network.target
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /usr/local/bin/asp-screenshot.py "$HB" $SS_PORT
+Restart=always
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload && systemctl enable asp-screenshot.service >/dev/null 2>&1
+        systemctl restart asp-screenshot.service
+
+        
+# Download asp-screenshot.js from GitHub to local server
+if [ ! -f "/usr/local/bin/asp-screenshot.js" ]; then
+    wget -q -O /usr/local/bin/asp-screenshot.js /usr/local/bin/asp-screenshot.js
+    chmod +x /usr/local/bin/asp-screenshot.js
+fi
+
+
+cat > /etc/systemd/system/asp-mediainfo.service << EOF
 [Unit]
 Description=ASP MediaInfo API Service
 After=network.target
@@ -1635,7 +1903,7 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
 
         proxy_set_header Accept-Encoding "";
-        sub_filter '</body>' '<script src="/asp-mediainfo.js"></script></body>';
+        sub_filter '</body>' '<script src="/asp-mediainfo.js"></script><script src="/asp-screenshot.js"></script></body>';
         sub_filter_once on;
     }
 
@@ -1648,6 +1916,22 @@ server {
         alias /usr/local/bin/sweetalert2.all.min.js;
         add_header Content-Type "application/javascript; charset=utf-8";
     }
+
+location = /asp-screenshot.js {
+    alias /usr/local/bin/asp-screenshot.js;
+    add_header Content-Type "application/javascript; charset=utf-8";
+        add_header Cache-Control "no-store";
+}
+
+location /api/ss {
+    proxy_pass http://127.0.0.1:$SS_PORT;
+}
+
+location /__asp_ss__/ {
+    alias /tmp/asp_screens/;
+    autoindex off;
+    add_header Cache-Control "no-store";
+}
 
     location /api/mi {
         proxy_pass http://127.0.0.1:$MI_PORT;
@@ -1711,7 +1995,7 @@ echo -e "${CYAN}       / _ | / __/ |/ _ \\ ${NC}"
 echo -e "${CYAN}      / __ |_\\ \\  / ___/ ${NC}"
 echo -e "${CYAN}     /_/ |_/___/ /_/     ${NC}"
 echo -e "${BLUE}================================================================${NC}"
-echo -e "${PURPLE}     ✦ Auto-Seedbox-PT (ASP) 极限部署引擎 v3.5.3 ✦${NC}"
+echo -e "${PURPLE}     ✦ Auto-Seedbox-PT (ASP) 极限部署引擎 v3.5.5 ✦${NC}"
 echo -e "${PURPLE}     ✦               作者：Supcutie              ✦${NC}"
 echo -e "${GREEN}    🚀 一键部署 qBittorrent + Vertex + FileBrowser 刷流引擎${NC}"
 echo -e "${YELLOW}   💡 GitHub：https://github.com/yimouleng/Auto-Seedbox-PT ${NC}"
@@ -1807,7 +2091,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 execute_with_spinner "修复系统包状态" sh -c "dpkg --configure -a && apt-get --fix-broken install -y >/dev/null 2>&1 || true"
-execute_with_spinner "安装依赖 (curl/jq/python3...)" sh -c "apt-get -qq update && apt-get -qq install -y curl wget jq unzip tar python3 net-tools ethtool iptables mediainfo locales"
+execute_with_spinner "安装依赖 (curl/jq/python3...)" sh -c "apt-get -qq update && apt-get -qq install -y curl wget jq unzip tar python3 net-tools ethtool iptables mediainfo ffmpeg locales"
 
 if [[ "$CUSTOM_PORT" == "true" ]]; then
     echo -e " ${CYAN}╔══════════════════ 自定义端口 ════════════════╗${NC}"
@@ -1821,6 +2105,10 @@ fi
 while check_port_occupied "$MI_PORT"; do
     MI_PORT=$((MI_PORT + 1))
 done
+while check_port_occupied "$SS_PORT"; do
+    SS_PORT=$((SS_PORT + 1))
+done
+
 
 cat > "$ASP_ENV_FILE" << EOF
 export QB_WEB_PORT=$QB_WEB_PORT
@@ -1828,6 +2116,7 @@ export QB_BT_PORT=$QB_BT_PORT
 export VX_PORT=${VX_PORT:-3000}
 export FB_PORT=${FB_PORT:-8081}
 export MI_PORT=${MI_PORT:-8082}
+export SS_PORT=${SS_PORT:-8083}
 EOF
 chmod 600 "$ASP_ENV_FILE"
 
