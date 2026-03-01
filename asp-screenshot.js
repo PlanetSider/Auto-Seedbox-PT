@@ -4,10 +4,9 @@
   const SS_API = "/api/ss";
   const SS_WIDTH = 1280;
   const SS_COUNT = 6;
-  const ICON_URL = "https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/screenshot/asp-screenshot_icon.png";  // CDN path for the screenshot button icon
+  const ICON_HTML = '<i class="material-icons">camera_alt</i>';  // Use Material Icon for screenshot button
 
   function getCurrentPath() {
-    // Ensure we get the current file path from FileBrowser
     const h = window.location.hash || "";
     const m = h.match(/^#\/files\/(.*)$/);
     if (!m) return null;
@@ -35,17 +34,8 @@
     btn.type = "button";
     btn.title = "为当前视频生成 6 张截图（宽度 1280，存 /tmp）";
 
-    // Create an image element for the icon
-    const icon = document.createElement("img");
-    icon.src = ICON_URL;
-    icon.style.height = "16px";
-    icon.style.width = "16px";
-    icon.style.marginRight = "8px";
-    icon.alt = "截图";
-
-    // Attach the icon to the button
-    btn.appendChild(icon);
-    btn.appendChild(document.createTextNode("截图"));
+    // Use Material Icon for the button
+    btn.innerHTML = ICON_HTML + " 截图";
 
     btn.style.cssText = [
       "margin-left:12px",
