@@ -1,202 +1,293 @@
 /**
  * Auto-Seedbox-PT (ASP) Screenshot 前端扩展
- * 由 Nginx 底层动态注入（/asp-screenshot.js）
- * 依赖：SweetAlert2（脚本已在页面注入 /sweetalert2.all.min.js）
+ * 由 Nginx 动态注入：/asp-screenshot.js
+ * 依赖：SweetAlert2（会加载 /sweetalert2.all.min.js）
  */
 (function() {
-    console.log("📸 [ASP] Screenshot v1.0 已加载！");
+  console.log("📸 [ASP] Screenshot v1.2 已加载！");
 
-    const SS_API = "/api/ss";
-    const DEFAULT_N = 6;
-    const DEFAULT_W = 1280;
+  const SS_API = "/api/ss";
 
-    // 动态引入弹窗 UI 库（和 MediaInfo 一致）
-    const script = document.createElement('script');
-    script.src = "/sweetalert2.all.min.js";
-    document.head.appendChild(script);
+  // 动态引入 SweetAlert2（和 MediaInfo 一致）
+  const script = document.createElement('script');
+  script.src = "/sweetalert2.all.min.js";
+  document.head.appendChild(script);
 
-    // 当前目录（和 MediaInfo 一致：基于 pathname，而不是 hash）
-    function getCurrentDir() {
-        let path = window.location.pathname.replace(/^\/files/, '');
-        return decodeURIComponent(path) || '/';
+  function getCurrentDir() {
+    let path = window.location.pathname.replace(/^\/files/, '');
+    return decodeURIComponent(path) || '/';
+  }
+
+  const copyText = (text) => {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    let ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    return new Promise((res, rej) => {
+      document.execCommand('copy') ? res() : rej();
+      ta.remove();
+    });
+  };
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+  }
+
+  let lastRightClickedFile = "";
+
+  document.addEventListener('contextmenu', function(e) {
+    let row = e.target.closest('.item');
+    if (row) {
+      let nameEl = row.querySelector('.name');
+      if (nameEl) lastRightClickedFile = nameEl.innerText.trim();
+    } else {
+      lastRightClickedFile = "";
+    }
+  }, true);
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.asp-ss-btn-class') && !e.target.closest('.item[aria-selected="true"]')) {
+      lastRightClickedFile = "";
+    }
+  }, true);
+
+  const isMedia = (file) => file && file.match(/\.(mp4|mkv|avi|ts|m2ts|mov|webm|mpg|mpeg|wmv|flv|vob|iso)$/i);
+
+  async function promptSettings(fileName) {
+    if (typeof Swal === 'undefined') {
+      alert('UI组件正在加载，请稍后再试...');
+      return null;
     }
 
-    // 兼容剪贴板复制
-    const copyText = (text) => {
-        if (navigator.clipboard && window.isSecureContext) {
-            return navigator.clipboard.writeText(text);
-        } else {
-            let textArea = document.createElement("textarea");
-            textArea.value = text;
-            textArea.style.position = "fixed";
-            textArea.style.opacity = "0";
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            return new Promise((res, rej) => {
-                document.execCommand('copy') ? res() : rej();
-                textArea.remove();
-            });
+    const html = `
+      <style>
+        .ss-form{display:grid;grid-template-columns:140px 1fr;gap:10px 12px;text-align:left}
+        .ss-form label{opacity:.85}
+        .ss-form input[type="number"]{width:100%;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.22);color:#fff;outline:none}
+        .ss-form input[type="range"]{width:100%}
+        .ss-help{grid-column:1/-1;opacity:.7;font-size:12px;line-height:1.5}
+        .ss-badge{display:inline-block;padding:2px 8px;border:1px solid rgba(255,255,255,.14);border-radius:999px;font-size:12px;opacity:.9}
+      </style>
+
+      <div style="text-align:left;opacity:.9;margin-bottom:10px">
+        文件：<code>${escapeHtml(fileName)}</code>
+        <div class="ss-help">默认会跳过片头/片尾（百分比），并输出到 <code>/tmp/asp_screens/</code>。</div>
+      </div>
+
+      <div class="ss-form">
+        <label>截图数量</label>
+        <input id="ss_n" type="number" min="1" max="20" value="6"/>
+
+        <label>宽度</label>
+        <input id="ss_w" type="number" min="320" max="3840" value="1280"/>
+
+        <label>跳过片头(%)</label>
+        <div>
+          <input id="ss_head" type="range" min="0" max="20" value="5"/>
+          <div class="ss-help">当前：<span class="ss-badge"><span id="ss_head_v">5</span>%</span></div>
+        </div>
+
+        <label>跳过片尾(%)</label>
+        <div>
+          <input id="ss_tail" type="range" min="0" max="20" value="5"/>
+          <div class="ss-help">当前：<span class="ss-badge"><span id="ss_tail_v">5</span>%</span></div>
+        </div>
+
+        <div class="ss-help">
+          说明：跳过百分比用于避开 OP/ED/片尾字幕；如果你希望更“随机”，可把片头片尾都调小。
+        </div>
+      </div>
+    `;
+
+    const result = await Swal.fire({
+      title: "Screenshot 设置",
+      html,
+      width: 720,
+      showCancelButton: true,
+      confirmButtonText: "开始截图",
+      cancelButtonText: "取消",
+      didOpen: () => {
+        const head = document.getElementById("ss_head");
+        const tail = document.getElementById("ss_tail");
+        const hv = document.getElementById("ss_head_v");
+        const tv = document.getElementById("ss_tail_v");
+        head.addEventListener("input", ()=> hv.textContent = head.value);
+        tail.addEventListener("input", ()=> tv.textContent = tail.value);
+      },
+      preConfirm: () => {
+        const n = parseInt(document.getElementById("ss_n").value || "6", 10);
+        const w = parseInt(document.getElementById("ss_w").value || "1280", 10);
+        const head = parseInt(document.getElementById("ss_head").value || "5", 10);
+        const tail = parseInt(document.getElementById("ss_tail").value || "5", 10);
+
+        if (!Number.isFinite(n) || n < 1 || n > 20) {
+          Swal.showValidationMessage("截图数量必须在 1-20 之间");
+          return false;
         }
-    };
-
-    function escapeHtml(s) {
-        return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
-    }
-
-    let lastRightClickedFile = "";
-
-    // 捕获右键选中目标（和 MediaInfo 一致）
-    document.addEventListener('contextmenu', function(e) {
-        let row = e.target.closest('.item');
-        if (row) {
-            let nameEl = row.querySelector('.name');
-            if (nameEl) lastRightClickedFile = nameEl.innerText.trim();
-        } else {
-            lastRightClickedFile = "";
+        if (!Number.isFinite(w) || w < 320 || w > 3840) {
+          Swal.showValidationMessage("宽度必须在 320-3840 之间");
+          return false;
         }
-    }, true);
-
-    // 左键点击任意非按钮区域清空右键记忆，防止幽灵状态
-    document.addEventListener('click', function(e) {
-        if (!e.target.closest('.asp-ss-btn-class') && !e.target.closest('.item[aria-selected="true"]')) {
-            lastRightClickedFile = "";
+        if (!Number.isFinite(head) || head < 0 || head > 20 || !Number.isFinite(tail) || tail < 0 || tail > 20) {
+          Swal.showValidationMessage("片头/片尾百分比必须在 0-20 之间");
+          return false;
         }
-    }, true);
-
-    const isMedia = (file) => file && file.match(/\.(mp4|mkv|avi|ts|m2ts|mov|webm|mpg|mpeg|wmv|flv|vob|iso)$/i);
-
-    const openScreenshot = (fileName) => {
-        let fullPath = (getCurrentDir() + '/' + fileName).replace(/\/\//g, '/');
-
-        if (typeof Swal === 'undefined') {
-            alert('UI组件正在加载，请稍后再试...'); return;
-        }
-
-        Swal.fire({
-            title: '生成截图中...',
-            html: `默认 <b>${DEFAULT_N}</b> 张 / 宽度 <b>${DEFAULT_W}</b> / 输出到 <code>/tmp</code>`,
-            allowOutsideClick: false,
-            didOpen: () => Swal.showLoading()
-        });
-
-        fetch(`${SS_API}?file=${encodeURIComponent(fullPath)}&n=${DEFAULT_N}&width=${DEFAULT_W}&fmt=jpg`, { cache: 'no-store' })
-        .then(r => r.json())
-        .then(data => {
-            if (data.error) throw new Error(data.error);
-            if (!data.base || !data.files || !data.files.length) throw new Error("返回数据异常");
-
-            const imgs = data.files.map(f => `${data.base}${f}`);
-            const links = imgs.map(u => location.origin + u).join("\n");
-
-            let html = `<style>
-                .ss-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:12px}
-                .ss-card{border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.22)}
-                .ss-bar{padding:7px 10px;display:flex;justify-content:space-between;align-items:center}
-                .ss-idx{font-weight:800}
-                .ss-tip{opacity:.7;font-size:12px}
-                .ss-img{width:100%;display:block}
-                .ss-foot{margin-top:10px;opacity:.75;text-align:left;font-size:12px}
-                .ss-foot code{background:rgba(0,0,0,.25);padding:2px 6px;border-radius:6px}
-            </style>`;
-
-            html += `<div style="text-align:left;opacity:.9">文件：<code>${escapeHtml(fileName)}</code></div>`;
-            html += `<div class="ss-grid">` + imgs.map((u,i)=>`
-                <a href="${u}" target="_blank" style="text-decoration:none">
-                  <div class="ss-card">
-                    <div class="ss-bar"><div class="ss-idx">#${i+1}</div><div class="ss-tip">新标签打开</div></div>
-                    <img class="ss-img" src="${u}" loading="lazy"/>
-                  </div>
-                </a>`).join("") + `</div>`;
-            html += `<div class="ss-foot">截图存放：<code>/tmp/asp_screens/</code>（服务端会自动清理旧文件）</div>`;
-
-            Swal.fire({
-                title: '截图生成完成',
-                html,
-                width: '940px',
-                showCancelButton: true,
-                showDenyButton: true,
-                confirmButtonText: '📋 复制链接',
-                denyButtonText: '打开目录',
-                cancelButtonText: '关闭'
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    copyText(links).then(() => {
-                        Swal.fire({toast:true, position:'top-end', icon:'success', title:'截图链接已复制', showConfirmButton:false, timer:2000});
-                    }).catch(() => Swal.fire('复制失败', '请手动复制弹窗中的链接', 'error'));
-                } else if (result.isDenied) {
-                    window.open(window.location.href, "_blank");
-                }
-            });
-        })
-        .catch(e => Swal.fire('截图失败', e.toString(), 'error'));
-    };
-
-    // 防抖注入按钮（仿 MediaInfo）
-    let observerTimer = null;
-    const observer = new MutationObserver(() => {
-        if (observerTimer) clearTimeout(observerTimer);
-        observerTimer = setTimeout(() => {
-            let targetFile = "";
-            if (lastRightClickedFile) {
-                targetFile = lastRightClickedFile;
-            } else {
-                let selectedRows = document.querySelectorAll('.item[aria-selected="true"], .item.selected');
-                if (selectedRows.length === 1) {
-                    let nameEl = selectedRows[0].querySelector('.name');
-                    if (nameEl) targetFile = nameEl.innerText.trim();
-                }
-            }
-
-            let ok = isMedia(targetFile);
-
-            let menus = new Set();
-            document.querySelectorAll('button[aria-label="Info"]').forEach(btn => {
-                if (btn.parentElement) menus.add(btn.parentElement);
-            });
-
-            menus.forEach(menu => {
-                let existingBtn = menu.querySelector('.asp-ss-btn-class');
-                if (ok) {
-                    if (!existingBtn) {
-                        let btn = document.createElement('button');
-                        btn.className = 'action asp-ss-btn-class';
-                        btn.setAttribute('title', 'Screenshot');
-                        btn.setAttribute('aria-label', 'Screenshot');
-                        btn.innerHTML = '<i class="material-icons">photo_camera</i><span>Screenshot</span>';
-
-                        btn.onclick = function(ev) {
-                            ev.preventDefault();
-                            ev.stopPropagation();
-                            document.body.click();
-                            openScreenshot(targetFile);
-                        };
-
-                        // 位置：优先插在 MediaInfo 后面（倒数第二）
-                        let miBtn = menu.querySelector('.asp-mi-btn-class');
-                        if (miBtn) {
-                            miBtn.insertAdjacentElement('afterend', btn);
-                        } else {
-                            let infoBtn = menu.querySelector('button[aria-label="Info"]');
-                            if (infoBtn) {
-                                infoBtn.insertAdjacentElement('afterend', btn);
-                            } else {
-                                menu.appendChild(btn);
-                            }
-                        }
-                    } else {
-                        // 若后来出现 MediaInfo，把截图按钮移到其后
-                        let miBtn = menu.querySelector('.asp-mi-btn-class');
-                        if (miBtn && existingBtn.previousElementSibling !== miBtn) {
-                            miBtn.insertAdjacentElement('afterend', existingBtn);
-                        }
-                    }
-                } else {
-                    if (existingBtn) existingBtn.remove();
-                }
-            });
-        }, 100);
+        return { n, width: w, head, tail };
+      }
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (!result.isConfirmed) return null;
+    return result.value;
+  }
+
+  function openScreenshot(fileName) {
+    promptSettings(fileName).then((opt) => {
+      if (!opt) return;
+
+      const fullPath = (getCurrentDir() + '/' + fileName).replace(/\/\//g, '/');
+
+      Swal.fire({
+        title: '生成截图中...',
+        html: `数量 <b>${opt.n}</b> / 宽度 <b>${opt.width}</b> / 跳过片头 <b>${opt.head}%</b> / 片尾 <b>${opt.tail}%</b>`,
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      const url = `${SS_API}?file=${encodeURIComponent(fullPath)}&n=${opt.n}&width=${opt.width}&head=${opt.head}&tail=${opt.tail}&fmt=jpg&zip=1`;
+
+      fetch(url, { cache: 'no-store' })
+        .then(r => r.json().then(j => ({ ok: r.ok, status: r.status, json: j })))
+        .then(({ ok, status, json }) => {
+          if (!ok || !json || !json.base || !Array.isArray(json.files) || json.files.length === 0) {
+            const msg = (json && json.error) ? json.error : `请求失败 (HTTP ${status})`;
+            throw new Error(msg);
+          }
+
+          const base = json.base; // /__asp_ss__/token/
+          const imgs = json.files.map(f => `${base}${f}`);
+          const zipUrl = (json.zip) ? `${base}${json.zip}` : null;
+
+          const listText = imgs.map(u => location.origin + u).join("\n");
+
+          let html = `<style>
+            .ss-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:12px}
+            .ss-card{border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.22)}
+            .ss-bar{padding:7px 10px;display:flex;justify-content:space-between;align-items:center}
+            .ss-idx{font-weight:800}
+            .ss-tip{opacity:.7;font-size:12px}
+            .ss-img{width:100%;display:block}
+            .ss-foot{margin-top:10px;opacity:.75;text-align:left;font-size:12px}
+            .ss-foot code{background:rgba(0,0,0,.25);padding:2px 6px;border-radius:6px}
+            .ss-actions{margin-top:10px;text-align:left;opacity:.85}
+            .ss-actions a{color:#9cdcfe;text-decoration:none}
+          </style>`;
+
+          html += `<div style="text-align:left;opacity:.9">文件：<code>${escapeHtml(fileName)}</code></div>`;
+          html += `<div class="ss-grid">` + imgs.map((u,i)=>`
+              <a href="${u}" target="_blank" style="text-decoration:none">
+                <div class="ss-card">
+                  <div class="ss-bar"><div class="ss-idx">#${i+1}</div><div class="ss-tip">新标签打开</div></div>
+                  <img class="ss-img" src="${u}" loading="lazy"/>
+                </div>
+              </a>`).join("") + `</div>`;
+
+          html += `<div class="ss-foot">截图存放：<code>/tmp/asp_screens/</code>（服务端会自动清理旧文件）</div>`;
+          html += `<div class="ss-actions">目录：<a href="${base}" target="_blank">${base}</a>${zipUrl ? ` &nbsp;|&nbsp; ZIP：<a href="${zipUrl}" target="_blank">${json.zip}</a>` : ""}</div>`;
+
+          Swal.fire({
+            title: '截图生成完成',
+            html,
+            width: '940px',
+            showCancelButton: true,
+            showDenyButton: true,
+            showConfirmButton: true,
+            confirmButtonText: '📦 一键打包下载',
+            denyButtonText: '📁 打开截图目录',
+            cancelButtonText: '关闭'
+          }).then((result) => {
+            if (result.isConfirmed) {
+              if (zipUrl) {
+                window.open(zipUrl, "_blank");
+              } else {
+                // fallback: copy links
+                copyText(listText).then(() => {
+                  Swal.fire({toast:true, position:'top-end', icon:'success', title:'未生成 ZIP，已复制截图链接', showConfirmButton:false, timer:2200});
+                });
+              }
+            } else if (result.isDenied) {
+              window.open(base, "_blank");
+            }
+          });
+        })
+        .catch(e => Swal.fire('截图失败', e.toString(), 'error'));
+    });
+  }
+
+  // 防抖注入按钮（仿 MediaInfo）
+  let observerTimer = null;
+  const observer = new MutationObserver(() => {
+    if (observerTimer) clearTimeout(observerTimer);
+    observerTimer = setTimeout(() => {
+      let targetFile = "";
+      if (lastRightClickedFile) {
+        targetFile = lastRightClickedFile;
+      } else {
+        let selectedRows = document.querySelectorAll('.item[aria-selected="true"], .item.selected');
+        if (selectedRows.length === 1) {
+          let nameEl = selectedRows[0].querySelector('.name');
+          if (nameEl) targetFile = nameEl.innerText.trim();
+        }
+      }
+
+      let ok = isMedia(targetFile);
+
+      let menus = new Set();
+      document.querySelectorAll('button[aria-label="Info"]').forEach(btn => {
+        if (btn.parentElement) menus.add(btn.parentElement);
+      });
+
+      menus.forEach(menu => {
+        let existingBtn = menu.querySelector('.asp-ss-btn-class');
+        if (ok) {
+          if (!existingBtn) {
+            let btn = document.createElement('button');
+            btn.className = 'action asp-ss-btn-class';
+            btn.setAttribute('title', 'Screenshot');
+            btn.setAttribute('aria-label', 'Screenshot');
+            btn.innerHTML = '<i class="material-icons">photo_camera</i><span>Screenshot</span>';
+
+            btn.onclick = function(ev) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              document.body.click();
+              openScreenshot(targetFile);
+            };
+
+            // 位置：优先插在 MediaInfo 后面（倒数第二）
+            let miBtn = menu.querySelector('.asp-mi-btn-class');
+            if (miBtn) {
+              miBtn.insertAdjacentElement('afterend', btn);
+            } else {
+              let infoBtn = menu.querySelector('button[aria-label="Info"]');
+              if (infoBtn) infoBtn.insertAdjacentElement('afterend', btn);
+              else menu.appendChild(btn);
+            }
+          } else {
+            // 若后来出现 MediaInfo，把截图按钮移到其后
+            let miBtn = menu.querySelector('.asp-mi-btn-class');
+            if (miBtn && existingBtn.previousElementSibling !== miBtn) {
+              miBtn.insertAdjacentElement('afterend', existingBtn);
+            }
+          }
+        } else {
+          if (existingBtn) existingBtn.remove();
+        }
+      });
+    }, 100);
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
 })();

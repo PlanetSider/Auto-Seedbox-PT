@@ -1537,11 +1537,11 @@ find "$HB/vertex/data/script" -type f \( -name "*.sh" -o -name "*.py" \) -exec c
         fi
 
         local JS_REMOTE_URL="https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/main/asp-mediainfo.js"
-        execute_with_spinner "拉取 MediaInfo 视频扩展" wget -qO /usr/local/bin/asp-mediainfo.js "$JS_REMOTE_URL"
-        execute_with_spinner "拉取 SweetAlert2 截图扩展" wget -qO /usr/local/bin/sweetalert2.all.min.js "https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"
+        execute_with_spinner "拉取 MediaInfo 前端扩展" wget -qO /usr/local/bin/asp-mediainfo.js \"${JS_REMOTE_URL}?v=$(date +%s%N)\""
+        execute_with_spinner "拉取 SweetAlert2" wget -qO /usr/local/bin/sweetalert2.all.min.js "https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"
 # Screenshot 前端扩展（从 GitHub 拉取，带 cache-buster 防止中间缓存）
 local SS_JS_URL="https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/screenshot/asp-screenshot.js"
-execute_with_spinner "拉取 Screenshot 前端扩展" sh -c "wget -qO /usr/local/bin/asp-screenshot.js \"${SS_JS_URL}?v=$(date +%s%N)\""
+execute_with_spinner "拉取 Screenshot 截图扩展" sh -c "wget -qO /usr/local/bin/asp-screenshot.js \"${SS_JS_URL}?v=$(date +%s%N)\""
 chmod +x /usr/local/bin/asp-screenshot.js
 
         cat > /usr/local/bin/asp-mediainfo.py << 'EOF_PY'
@@ -1613,7 +1613,7 @@ EOF_PY
 
         # 后端截图服务：asp-screenshot.py（调用 ffmpeg 抽帧，输出到 /tmp）
         cat > /usr/local/bin/asp-screenshot.py << 'EOF_PY_SS'
-import http.server, socketserver, urllib.parse, subprocess, json, os, sys, time, shutil, uuid
+import http.server, socketserver, urllib.parse, subprocess, json, os, sys, time, shutil, uuid, zipfile
 
 PORT = int(sys.argv[2])
 BASE_DIR = sys.argv[1]
@@ -1660,7 +1660,7 @@ def ffprobe_duration(path):
         r = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", path],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=12
         )
         s = (r.stdout or "").strip()
         if not s:
@@ -1669,18 +1669,35 @@ def ffprobe_duration(path):
     except Exception:
         return None
 
-def make_timestamps(dur, n):
+def make_timestamps(dur, n, head_pct, tail_pct):
+    # head_pct/tail_pct: 0..49 (percent)
     if not dur or dur <= 0 or n <= 0:
         return [1.0] * n
     if n == 1:
         return [max(0.0, dur * 0.5)]
-    start = dur * 0.05
-    end = dur * 0.95
-    if end <= start + 1:
+    head = max(0.0, min(head_pct, 49.0)) / 100.0
+    tail = max(0.0, min(tail_pct, 49.0)) / 100.0
+    start = dur * head
+    end = dur * (1.0 - tail)
+    if end <= start + 1.0:
         start = 0.0
         end = max(1.0, dur * 0.9)
     step = (end - start) / (n - 1)
     return [max(0.0, start + i * step) for i in range(n)]
+
+def make_zip(out_dir, files, zip_name="screenshots.zip"):
+    zip_path = os.path.join(out_dir, zip_name)
+    try:
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            for f in files:
+                fp = os.path.join(out_dir, f)
+                if os.path.isfile(fp):
+                    z.write(fp, arcname=f)
+        if os.path.isfile(zip_path) and os.path.getsize(zip_path) > 0:
+            return zip_name
+    except Exception:
+        pass
+    return None
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def _send(self, code, payload):
@@ -1700,20 +1717,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         qs = urllib.parse.parse_qs(parsed.query)
         rel = qs.get("file", [""])[0]
-        try:
-            n = int(qs.get("n", ["6"])[0] or 6)
-        except Exception:
-            n = 6
-        try:
-            width = int(qs.get("width", ["1280"])[0] or 1280)
-        except Exception:
-            width = 1280
-        fmt = (qs.get("fmt", ["jpg"])[0] or "jpg").lower()
 
-        n = max(1, min(n, 12))
+        def geti(key, default):
+            try:
+                return int(qs.get(key, [str(default)])[0] or default)
+            except Exception:
+                return default
+
+        n = geti("n", 6)
+        width = geti("width", 1280)
+        head = geti("head", 5)     # percent
+        tail = geti("tail", 5)     # percent
+        fmt = (qs.get("fmt", ["jpg"])[0] or "jpg").lower()
+        zip_on = (qs.get("zip", ["1"])[0] or "1").strip()  # default on
+
+        n = max(1, min(n, 20))
         width = max(320, min(width, 3840))
+        head = max(0, min(head, 49))
+        tail = max(0, min(tail, 49))
         if fmt not in ("jpg", "jpeg", "png"):
             fmt = "jpg"
+        make_zip_on = zip_on not in ("0", "false", "no")
 
         full = safe_join(BASE_DIR, rel)
         if not full or not os.path.isfile(full):
@@ -1728,7 +1752,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         os.makedirs(out_dir, exist_ok=True)
 
         dur = ffprobe_duration(full)
-        ts = make_timestamps(dur, n)
+        ts = make_timestamps(dur, n, head, tail)
 
         files = []
         for i, t in enumerate(ts, start=1):
@@ -1743,7 +1767,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 cmd += ["-q:v", "2"]
             cmd += ["-y", out_path]
             try:
-                subprocess.run(cmd, timeout=30, check=True)
+                subprocess.run(cmd, timeout=35, check=True)
                 if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
                     files.append(out_name)
             except Exception:
@@ -1757,7 +1781,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(500, {"error": "截图失败：ffmpeg 执行失败或文件不支持"})
             return
 
-        self._send(200, {"base": f"/__asp_ss__/{token}/", "files": files})
+        zip_file = None
+        if make_zip_on:
+            zip_file = make_zip(out_dir, files)
+
+        # Nginx exposes /__asp_ss__/ -> /tmp/asp_screens/
+        payload = {"base": f"/__asp_ss__/{token}/", "files": files, "zip": zip_file,
+                   "params": {"n": n, "width": width, "head": head, "tail": tail, "fmt": fmt}}
+        self._send(200, payload)
 
 socketserver.TCPServer.allow_reuse_address = True
 with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
