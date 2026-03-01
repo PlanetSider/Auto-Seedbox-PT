@@ -38,6 +38,7 @@ QB_BT_PORT=20000
 VX_PORT=3000
 FB_PORT=8081
 MI_PORT=8082
+SS_PORT=8083
 
 APP_USER="admin"
 APP_PASS=""
@@ -1602,6 +1603,327 @@ with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
 EOF_PY
         chmod +x /usr/local/bin/asp-mediainfo.py
 
+\
+        # ================= 截图功能（FileBrowser 内一键截图） =================
+        # 前端注入脚本：asp-screenshot.js（依赖 SweetAlert2，已在本脚本中拉取）
+        cat > https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/screenshot/asp-screenshot.js << 'EOF_JS'
+/* Auto-Seedbox-PT: FileBrowser Screenshot Extension (SweetAlert2 UI) */
+(function () {
+  const SS_API = "/api/ss";
+  const SS_WIDTH = 1280;
+  const SS_COUNT = 6;
+
+  function getCurrentPath() {
+    const h = window.location.hash || "";
+    const m = h.match(/^#\/files\/(.*)$/);
+    if (!m) return null;
+    const raw = m[1].split("?")[0].split("#")[0];
+    try { return decodeURIComponent(raw); } catch (e) { return raw; }
+  }
+
+  function isProbablyVideo(path) {
+    if (!path) return false;
+    const lower = path.toLowerCase();
+    return /\.(mkv|mp4|m2ts|ts|avi|mov|wmv|flv|webm|mpg|mpeg)$/.test(lower);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+  }
+
+  function ensureButton() {
+    const header = document.querySelector("header") || document.querySelector(".header");
+    if (!header) return;
+    if (document.getElementById("asp-ss-btn")) return;
+
+    const btn = document.createElement("button");
+    btn.id = "asp-ss-btn";
+    btn.type = "button";
+    btn.textContent = "截图";
+    btn.title = "为当前视频生成 6 张截图（宽度 1280，存 /tmp）";
+    btn.style.cssText = [
+      "margin-left:12px",
+      "padding:6px 12px",
+      "border-radius:12px",
+      "border:1px solid rgba(255,255,255,0.14)",
+      "background:rgba(0,0,0,0.22)",
+      "color:#fff",
+      "cursor:pointer",
+      "font-weight:700",
+      "letter-spacing:.5px",
+      "box-shadow: 0 6px 18px rgba(0,0,0,0.18)",
+      "backdrop-filter: blur(8px)",
+      "transition: transform .08s ease, background .2s ease, box-shadow .2s ease"
+    ].join(";");
+
+    btn.onmouseenter = () => { btn.style.background = "rgba(0,0,0,0.32)"; btn.style.boxShadow = "0 10px 26px rgba(0,0,0,0.22)"; };
+    btn.onmouseleave = () => { btn.style.background = "rgba(0,0,0,0.22)"; btn.style.boxShadow = "0 6px 18px rgba(0,0,0,0.18)"; };
+    btn.onmousedown  = () => { btn.style.transform = "scale(0.98)"; };
+    btn.onmouseup    = () => { btn.style.transform = "scale(1)"; };
+
+    btn.addEventListener("click", async () => {
+      const path = getCurrentPath();
+      if (!window.Swal) { alert("SweetAlert2 未加载，无法展示截图弹窗。"); return; }
+      if (!path) {
+        Swal.fire({ icon: "info", title: "未检测到文件路径", text: "请先进入一个文件详情页面再截图。" });
+        return;
+      }
+
+      const qs = new URLSearchParams({ file: path, n: String(SS_COUNT), width: String(SS_WIDTH), fmt: "jpg" });
+      const reqUrl = `${SS_API}?${qs.toString()}`;
+
+      if (!isProbablyVideo(path)) {
+        const r = await Swal.fire({
+          icon: "warning",
+          title: "看起来不是常见视频后缀",
+          html: `<div style="text-align:left;opacity:.9">路径：<code>${escapeHtml(path)}</code><br/>仍要尝试截图吗？</div>`,
+          showCancelButton: true,
+          confirmButtonText: "继续截图",
+          cancelButtonText: "取消",
+          reverseButtons: true
+        });
+        if (!r.isConfirmed) return;
+      }
+
+      Swal.fire({
+        title: "正在生成截图…",
+        html: `<div style="opacity:.85">默认 6 张 / 宽度 1280 / 输出到 <code>/tmp</code></div>`,
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        didOpen: () => { Swal.showLoading(); }
+      });
+
+      try {
+        const res = await fetch(reqUrl, { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data || !data.base || !Array.isArray(data.files) || data.files.length === 0) {
+          const msg = (data && data.error) ? data.error : `请求失败 (HTTP ${res.status})`;
+          throw new Error(msg);
+        }
+
+        const base = data.base; // /__asp_ss__/token/
+        const imgs = data.files.map(f => `${base}${f}`);
+
+        const grid = `
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:12px">
+            ${imgs.map((u, i) => `
+              <a href="${u}" target="_blank" style="text-decoration:none">
+                <div style="border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.22)">
+                  <div style="padding:7px 10px;display:flex;justify-content:space-between;align-items:center">
+                    <div style="font-weight:800">#${i+1}</div>
+                    <div style="opacity:.7;font-size:12px">新标签打开</div>
+                  </div>
+                  <img src="${u}" style="width:100%;display:block" loading="lazy" />
+                </div>
+              </a>
+            `).join("")}
+          </div>
+          <div style="margin-top:10px;opacity:.75;text-align:left;font-size:12px">
+            截图存放：<code>/tmp/asp_screens/</code>（会自动清理旧文件）
+          </div>
+        `;
+
+        Swal.fire({
+          icon: "success",
+          title: "截图生成完成",
+          width: 940,
+          html: `<div style="text-align:left"><div style="opacity:.85">文件：<code>${escapeHtml(path)}</code></div>${grid}</div>`,
+          confirmButtonText: "好的",
+          showCloseButton: true
+        });
+      } catch (e) {
+        Swal.fire({
+          icon: "error",
+          title: "截图失败",
+          html: `<div style="text-align:left;opacity:.9">${escapeHtml(String(e.message || e))}</div>
+                 <div style="text-align:left;margin-top:8px;opacity:.7;font-size:12px">
+                   可能原因：ffmpeg 不可用 / 文件不可读 / 不是视频 / 反代限制。
+                 </div>`,
+          confirmButtonText: "知道了",
+          showCloseButton: true
+        });
+      }
+    });
+
+    header.appendChild(btn);
+  }
+
+  const obs = new MutationObserver(() => ensureButton());
+  obs.observe(document.documentElement, { childList: true, subtree: true });
+  ensureButton();
+})();
+EOF_JS
+        chmod +x https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/screenshot/asp-screenshot.js
+
+        # 后端截图服务：asp-screenshot.py（调用 ffmpeg 抽帧，输出到 /tmp）
+        cat > /usr/local/bin/asp-screenshot.py << 'EOF_PY_SS'
+import http.server, socketserver, urllib.parse, subprocess, json, os, sys, time, shutil, uuid
+
+PORT = int(sys.argv[2])
+BASE_DIR = sys.argv[1]
+OUT_ROOT = "/tmp/asp_screens"
+
+def safe_join(base, rel):
+    rel = (rel or "").lstrip("/")
+    full = os.path.abspath(os.path.join(base, rel))
+    base_abs = os.path.abspath(base)
+    if not full.startswith(base_abs + os.sep) and full != base_abs:
+        return None
+    return full
+
+def cleanup_old(max_age_sec=48*3600, max_dirs=200):
+    try:
+        if not os.path.isdir(OUT_ROOT):
+            return
+        now = time.time()
+        items = []
+        for name in os.listdir(OUT_ROOT):
+            p = os.path.join(OUT_ROOT, name)
+            if os.path.isdir(p):
+                try:
+                    st = os.stat(p)
+                    items.append((st.st_mtime, p))
+                except Exception:
+                    pass
+        items.sort()  # oldest first
+        removed = 0
+        for mtime, p in items:
+            if removed >= 40:
+                break
+            if (now - mtime) > max_age_sec:
+                shutil.rmtree(p, ignore_errors=True)
+                removed += 1
+        if len(items) > max_dirs:
+            for _, p in items[: max(0, len(items) - max_dirs)]:
+                shutil.rmtree(p, ignore_errors=True)
+    except Exception:
+        pass
+
+def ffprobe_duration(path):
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", path],
+            capture_output=True, text=True, timeout=10
+        )
+        s = (r.stdout or "").strip()
+        if not s:
+            return None
+        return float(s)
+    except Exception:
+        return None
+
+def make_timestamps(dur, n):
+    if not dur or dur <= 0 or n <= 0:
+        return [1.0] * n
+    if n == 1:
+        return [max(0.0, dur * 0.5)]
+    start = dur * 0.05
+    end = dur * 0.95
+    if end <= start + 1:
+        start = 0.0
+        end = max(1.0, dur * 0.9)
+    step = (end - start) / (n - 1)
+    return [max(0.0, start + i * step) for i in range(n)]
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def _send(self, code, payload):
+        b = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != "/api/ss":
+            self._send(404, {"error": "not found"})
+            return
+
+        qs = urllib.parse.parse_qs(parsed.query)
+        rel = qs.get("file", [""])[0]
+        try:
+            n = int(qs.get("n", ["6"])[0] or 6)
+        except Exception:
+            n = 6
+        try:
+            width = int(qs.get("width", ["1280"])[0] or 1280)
+        except Exception:
+            width = 1280
+        fmt = (qs.get("fmt", ["jpg"])[0] or "jpg").lower()
+
+        n = max(1, min(n, 12))
+        width = max(320, min(width, 3840))
+        if fmt not in ("jpg", "jpeg", "png"):
+            fmt = "jpg"
+
+        full = safe_join(BASE_DIR, rel)
+        if not full or not os.path.isfile(full):
+            self._send(400, {"error": "非法路径或文件不存在"})
+            return
+
+        os.makedirs(OUT_ROOT, exist_ok=True)
+        cleanup_old()
+
+        token = uuid.uuid4().hex
+        out_dir = os.path.join(OUT_ROOT, token)
+        os.makedirs(out_dir, exist_ok=True)
+
+        dur = ffprobe_duration(full)
+        ts = make_timestamps(dur, n)
+
+        files = []
+        for i, t in enumerate(ts, start=1):
+            out_name = f"{i}.{fmt}"
+            out_path = os.path.join(out_dir, out_name)
+            vf = f"scale={width}:-2"
+            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error",
+                   "-ss", f"{t:.3f}", "-i", full,
+                   "-frames:v", "1", "-an",
+                   "-vf", vf]
+            if fmt in ("jpg", "jpeg"):
+                cmd += ["-q:v", "2"]
+            cmd += ["-y", out_path]
+            try:
+                subprocess.run(cmd, timeout=30, check=True)
+                if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+                    files.append(out_name)
+            except Exception:
+                pass
+
+        if not files:
+            try:
+                shutil.rmtree(out_dir, ignore_errors=True)
+            except Exception:
+                pass
+            self._send(500, {"error": "截图失败：ffmpeg 执行失败或文件不支持"})
+            return
+
+        self._send(200, {"base": f"/__asp_ss__/{token}/", "files": files})
+
+socketserver.TCPServer.allow_reuse_address = True
+with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
+    httpd.serve_forever()
+EOF_PY_SS
+        chmod +x /usr/local/bin/asp-screenshot.py
+
+        cat > /etc/systemd/system/asp-screenshot.service << EOF
+[Unit]
+Description=ASP Screenshot API Service (ffmpeg)
+After=network.target
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /usr/local/bin/asp-screenshot.py "$HB" $SS_PORT
+Restart=always
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload && systemctl enable asp-screenshot.service >/dev/null 2>&1
+        systemctl restart asp-screenshot.service
+
         cat > /etc/systemd/system/asp-mediainfo.service << EOF
 [Unit]
 Description=ASP MediaInfo API Service
@@ -1635,7 +1957,7 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
 
         proxy_set_header Accept-Encoding "";
-        sub_filter '</body>' '<script src="/asp-mediainfo.js"></script></body>';
+        sub_filter '</body>' '<script src="/asp-mediainfo.js"></script><script src="/asp-screenshot.js"></script></body>';
         sub_filter_once on;
     }
 
@@ -1648,6 +1970,21 @@ server {
         alias /usr/local/bin/sweetalert2.all.min.js;
         add_header Content-Type "application/javascript; charset=utf-8";
     }
+
+location = /asp-screenshot.js {
+    alias https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/screenshot/asp-screenshot.js;
+    add_header Content-Type "application/javascript; charset=utf-8";
+}
+
+location /api/ss {
+    proxy_pass http://127.0.0.1:$SS_PORT;
+}
+
+location /__asp_ss__/ {
+    alias /tmp/asp_screens/;
+    autoindex off;
+    add_header Cache-Control "no-store";
+}
 
     location /api/mi {
         proxy_pass http://127.0.0.1:$MI_PORT;
@@ -1711,7 +2048,7 @@ echo -e "${CYAN}       / _ | / __/ |/ _ \\ ${NC}"
 echo -e "${CYAN}      / __ |_\\ \\  / ___/ ${NC}"
 echo -e "${CYAN}     /_/ |_/___/ /_/     ${NC}"
 echo -e "${BLUE}================================================================${NC}"
-echo -e "${PURPLE}     ✦ Auto-Seedbox-PT (ASP) 极限部署引擎 v3.5.3 ✦${NC}"
+echo -e "${PURPLE}     ✦ Auto-Seedbox-PT (ASP) 极限部署引擎 v3.5.2 ✦${NC}"
 echo -e "${PURPLE}     ✦               作者：Supcutie              ✦${NC}"
 echo -e "${GREEN}    🚀 一键部署 qBittorrent + Vertex + FileBrowser 刷流引擎${NC}"
 echo -e "${YELLOW}   💡 GitHub：https://github.com/yimouleng/Auto-Seedbox-PT ${NC}"
@@ -1807,7 +2144,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 execute_with_spinner "修复系统包状态" sh -c "dpkg --configure -a && apt-get --fix-broken install -y >/dev/null 2>&1 || true"
-execute_with_spinner "安装依赖 (curl/jq/python3...)" sh -c "apt-get -qq update && apt-get -qq install -y curl wget jq unzip tar python3 net-tools ethtool iptables mediainfo locales"
+execute_with_spinner "安装依赖 (curl/jq/python3...)" sh -c "apt-get -qq update && apt-get -qq install -y curl wget jq unzip tar python3 net-tools ethtool iptables mediainfo ffmpeg locales"
 
 if [[ "$CUSTOM_PORT" == "true" ]]; then
     echo -e " ${CYAN}╔══════════════════ 自定义端口 ════════════════╗${NC}"
@@ -1821,6 +2158,10 @@ fi
 while check_port_occupied "$MI_PORT"; do
     MI_PORT=$((MI_PORT + 1))
 done
+while check_port_occupied "$SS_PORT"; do
+    SS_PORT=$((SS_PORT + 1))
+done
+
 
 cat > "$ASP_ENV_FILE" << EOF
 export QB_WEB_PORT=$QB_WEB_PORT
@@ -1828,6 +2169,7 @@ export QB_BT_PORT=$QB_BT_PORT
 export VX_PORT=${VX_PORT:-3000}
 export FB_PORT=${FB_PORT:-8081}
 export MI_PORT=${MI_PORT:-8082}
+export SS_PORT=${SS_PORT:-8083}
 EOF
 chmod 600 "$ASP_ENV_FILE"
 
