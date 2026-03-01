@@ -1537,7 +1537,7 @@ find "$HB/vertex/data/script" -type f \( -name "*.sh" -o -name "*.py" \) -exec c
         fi
 
         local JS_REMOTE_URL="https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/main/asp-mediainfo.js"
-        execute_with_spinner "拉取 MediaInfo 前端扩展" wget -qO /usr/local/bin/asp-mediainfo.js \"${JS_REMOTE_URL}?v=$(date +%s%N)\""
+        execute_with_spinner "拉取 MediaInfo 前端扩展" sh -c "wget -qO /usr/local/bin/asp-mediainfo.js \"${JS_REMOTE_URL}?v=$(date +%s%N)\""
         execute_with_spinner "拉取 SweetAlert2" wget -qO /usr/local/bin/sweetalert2.all.min.js "https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"
 # Screenshot 前端扩展（从 GitHub 拉取，带 cache-buster 防止中间缓存）
 local SS_JS_URL="https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/screenshot/asp-screenshot.js"
@@ -1607,7 +1607,6 @@ with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
 EOF_PY
         chmod +x /usr/local/bin/asp-mediainfo.py
 
-\
         # ================= 截图功能（FileBrowser 内一键截图） =================
         # 前端注入脚本：asp-screenshot.js（依赖 SweetAlert2，已在本脚本中拉取）
 
