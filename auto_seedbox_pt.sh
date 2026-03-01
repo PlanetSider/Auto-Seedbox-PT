@@ -1927,7 +1927,7 @@ EOF
         
 # Download asp-screenshot.js from GitHub to local server
 if [ ! -f "/usr/local/bin/asp-screenshot.js" ]; then
-    wget -q -O /usr/local/bin/asp-screenshot.js https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/screenshot/asp-screenshot.js
+    wget -q -O /usr/local/bin/asp-screenshot.js /usr/local/bin/asp-screenshot.js
     chmod +x /usr/local/bin/asp-screenshot.js
 fi
 

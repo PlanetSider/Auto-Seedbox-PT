@@ -4,8 +4,10 @@
   const SS_API = "/api/ss";
   const SS_WIDTH = 1280;
   const SS_COUNT = 6;
+  const ICON_URL = "/mnt/data/screenshot_button_icon.png";  // Icon path for the screenshot button
 
   function getCurrentPath() {
+    // Ensure the current file path is retrieved via FileBrowser structure
     const h = window.location.hash || "";
     const m = h.match(/^#\/files\/(.*)$/);
     if (!m) return null;
@@ -31,8 +33,20 @@
     const btn = document.createElement("button");
     btn.id = "asp-ss-btn";
     btn.type = "button";
-    btn.textContent = "截图";
     btn.title = "为当前视频生成 6 张截图（宽度 1280，存 /tmp）";
+
+    // Create an image element for the icon
+    const icon = document.createElement("img");
+    icon.src = ICON_URL;
+    icon.style.height = "16px";
+    icon.style.width = "16px";
+    icon.style.marginRight = "8px";
+    icon.alt = "截图";
+
+    // Attach the icon to the button
+    btn.appendChild(icon);
+    btn.appendChild(document.createTextNode("截图"));
+
     btn.style.cssText = [
       "margin-left:12px",
       "padding:6px 12px",
