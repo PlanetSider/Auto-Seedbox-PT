@@ -46,7 +46,7 @@
 
 ### 📦 组件化部署
 - **Vertex**（Docker）：支持备份恢复与配置清洗（自动修正 qB 地址与账号密码）。
-- **FileBrowser + MediaInfo**（Docker + Nginx）：网页内可直接查看媒体信息（本地微服务 + Nginx 注入）。
+- **FileBrowser + MediaInfo**（Docker + Nginx）：网页内可直接查看媒体信息以及进行视频智能截图（发种专用，本地微服务 + Nginx 注入）。
 
 ---
 
