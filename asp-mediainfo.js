@@ -138,7 +138,8 @@
                     textToCopy = `[quote]\n${rawText.trim()}\n[/quote]`;
                     successMsg = 'BBCode 复制成功，快去发种吧！';
                 } else {
-                    return; // 点击关闭或背景
+                    Swal.close();
+                    return;
                 }
 
                 copyText(textToCopy).then(() => {

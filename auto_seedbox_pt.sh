@@ -312,6 +312,23 @@ uninstall() {
         echo -e "${YELLOW}=================================================${NC}"
     fi
 
+    # 二次确认：Vertex 删除由用户确认
+    local vx_detected="false"
+    if command -v docker >/dev/null 2>&1; then
+        docker ps -a --format "{{.Names}}" 2>/dev/null | grep -qx "vertex" && vx_detected="true"
+    fi
+    if [[ -d "$target_home/vertex" || -d "/root/vertex" ]]; then
+        vx_detected="true"
+    fi
+    local VX_PURGE="Y"
+    if [[ "$vx_detected" == "true" ]]; then
+        echo -e "${YELLOW}=================================================${NC}"
+        log_warn "检测到 Vertex 容器/数据痕迹，删除后不可恢复。"
+        read -p "是否一并删除 Vertex（容器/镜像/数据）？[Y/n]: " VX_PURGE < /dev/tty
+        VX_PURGE=${VX_PURGE:-Y}
+        echo -e "${YELLOW}=================================================${NC}"
+    fi
+
     execute_with_spinner "停止并移除服务守护进程" sh -c "
         systemctl stop qbittorrent-nox@${target_user} 2>/dev/null || true
         systemctl disable qbittorrent-nox@${target_user} 2>/dev/null || true
@@ -352,9 +369,9 @@ uninstall() {
 
     if command -v docker >/dev/null; then
         execute_with_spinner "清理 Docker 镜像与容器残留" sh -c "
-            docker rm -f vertex 2>/dev/null || true
+            if [[ "${VX_PURGE:-Y}" =~ ^[Yy]$ ]]; then docker rm -f vertex 2>/dev/null || true; fi
             if [[ "${FB_PURGE:-Y}" =~ ^[Yy]$ ]]; then docker rm -f filebrowser 2>/dev/null || true; fi
-            docker rmi lswl/vertex:stable 2>/dev/null || true
+            if [[ "${VX_PURGE:-Y}" =~ ^[Yy]$ ]]; then docker rmi lswl/vertex:stable 2>/dev/null || true; fi
             if [[ "${FB_PURGE:-Y}" =~ ^[Yy]$ ]]; then docker rmi filebrowser/filebrowser:latest 2>/dev/null || true; fi
             docker network prune -f >/dev/null 2>&1 || true
         "
@@ -441,8 +458,10 @@ uninstall() {
 
     log_warn "清理配置文件..."
     if [[ -d "$target_home" ]]; then
-rm -rf "$target_home/.config/qBittorrent" "$target_home/.local/share/qBittorrent" "$target_home/.cache/qBittorrent" \
-               "$target_home/vertex"
+        rm -rf "$target_home/.config/qBittorrent" "$target_home/.local/share/qBittorrent" "$target_home/.cache/qBittorrent"
+        if [[ "${VX_PURGE:-Y}" =~ ^[Yy]$ ]]; then
+            rm -rf "$target_home/vertex"
+        fi
 if [[ "${FB_PURGE:-Y}" =~ ^[Yy]$ ]]; then
     rm -rf "$target_home/.config/filebrowser" "$target_home/filebrowser_data" "$target_home/fb.db"
 fi
@@ -465,8 +484,10 @@ log_info "已清理 $target_home 下的配置文件。"
 
     rm -f "$AUTOTUNE_OPTIN_FLAG" 2>/dev/null || true
 
-    rm -rf "/root/.config/qBittorrent" "/root/.local/share/qBittorrent" "/root/.cache/qBittorrent" \
-           "/root/vertex" "$ASP_ENV_FILE"
+    rm -rf "/root/.config/qBittorrent" "/root/.local/share/qBittorrent" "/root/.cache/qBittorrent" "$ASP_ENV_FILE"
+    if [[ "${VX_PURGE:-Y}" =~ ^[Yy]$ ]]; then
+        rm -rf "/root/vertex"
+    fi
     if [[ "${FB_PURGE:-Y}" =~ ^[Yy]$ ]]; then
         rm -rf "/root/.config/filebrowser" "/root/filebrowser_data" "/root/fb.db"
     fi
@@ -1536,7 +1557,7 @@ find "$HB/vertex/data/script" -type f \( -name "*.sh" -o -name "*.py" \) -exec c
             execute_with_spinner "安装 Nginx" sh -c "apt-get update -qq && apt-get install -y nginx"
         fi
 
-        local JS_REMOTE_URL="https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/main/asp-mediainfo.js"
+        local JS_REMOTE_URL="https://github.com/yimouleng/Auto-Seedbox-PT/raw/refs/heads/screenshot/asp-mediainfo.js"
         execute_with_spinner "拉取 MediaInfo 前端扩展" sh -c "wget -qO /usr/local/bin/asp-mediainfo.js \"${JS_REMOTE_URL}?v=$(date +%s%N)\""
         execute_with_spinner "拉取 SweetAlert2" wget -qO /usr/local/bin/sweetalert2.all.min.js "https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"
 # Screenshot 前端扩展（从 GitHub 拉取，带 cache-buster 防止中间缓存）
