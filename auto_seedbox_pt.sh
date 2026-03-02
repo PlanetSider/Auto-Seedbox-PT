@@ -371,14 +371,27 @@ uninstall() {
 
     "
 
-    if command -v docker >/dev/null; then
-        execute_with_spinner "清理 Docker 镜像与容器残留" bash -c "
-            if [[ \"${VX_PURGE:-Y}\" =~ ^[Yy]$ ]]; then docker rm -f vertex 2>/dev/null || true; fi
-            if [[ \"${FB_PURGE:-Y}\" =~ ^[Yy]$ ]]; then docker rm -f filebrowser 2>/dev/null || true; fi
-            if [[ \"${VX_PURGE:-Y}\" =~ ^[Yy]$ ]]; then docker rmi lswl/vertex:stable 2>/dev/null || true; fi
-            if [[ \"${FB_PURGE:-Y}\" =~ ^[Yy]$ ]]; then docker rmi filebrowser/filebrowser:latest 2>/dev/null || true; fi
-            docker network prune -f >/dev/null 2>&1 || true
-        "
+    if command -v docker >/dev/null 2>&1; then
+      execute_with_spinner "清理 Docker 镜像与容器残留" sh -c '
+        VX_PURGE="$1"
+        FB_PURGE="$2"
+    
+        case "${VX_PURGE:-Y}" in
+          [Yy])
+            docker rm -f vertex 2>/dev/null || true
+            docker rmi lswl/vertex:stable 2>/dev/null || true
+            ;;
+        esac
+    
+        case "${FB_PURGE:-Y}" in
+          [Yy])
+            docker rm -f filebrowser 2>/dev/null || true
+            docker rmi filebrowser/filebrowser:latest 2>/dev/null || true
+            ;;
+        esac
+    
+        docker network prune -f >/dev/null 2>&1 || true
+      ' sh "${VX_PURGE:-Y}" "${FB_PURGE:-Y}"
     fi
 
     execute_with_spinner "移除系统优化与内核回滚 (含服务扩展)" sh -c "
@@ -1902,10 +1915,11 @@ EOF
 
         
 # Download asp-screenshot.js from GitHub to local server
-if [ ! -f "/usr/local/bin/asp-screenshot.js" ]; then
-    wget -q -O /usr/local/bin/asp-screenshot.js /usr/local/bin/asp-screenshot.js
-    chmod +x /usr/local/bin/asp-screenshot.js
+if [ ! -s "/usr/local/bin/asp-screenshot.js" ]; then
+  wget -q --tries=3 --timeout=20 -O /usr/local/bin/asp-screenshot.js \
+    "https://raw.githubusercontent.com/yimouleng/Auto-Seedbox-PT/main/asp-screenshot.js?x=$(date +%s%N)" || true
 fi
+chmod 644 /usr/local/bin/asp-screenshot.js
 
 
 cat > /etc/systemd/system/asp-mediainfo.service << EOF
