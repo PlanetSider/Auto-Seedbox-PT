@@ -27,7 +27,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # ================= 基础配置 =================
-SCRIPT_VERSION="3.0.0"
+SCRIPT_VERSION="1.0.0"
 SCRIPT_NAME="Auto-Seedbox-Apps"
 LOG_FILE="/tmp/asp_apps_install.log"
 
@@ -100,7 +100,7 @@ banner() {
   echo -e "${CYAN}      / __ |_\\ \\  / ___/ ${NC}"
   echo -e "${CYAN}     /_/ |_/___/ /_/     ${NC}"
   echo -e "${BLUE}================================================================${NC}"
-  echo -e "${PURPLE}     ✦ ${SCRIPT_NAME} v${SCRIPT_VERSION} ✦${NC}"
+  echo -e "${PURPLE}     ✦     ${SCRIPT_NAME} v${SCRIPT_VERSION}     ✦${NC}"
   echo -e "${PURPLE}     ✦               作者：Supcutie              ✦${NC}"
   echo -e "${GREEN}    🚀 一键部署 Vertex + FileBrowser Apps 引擎${NC}"
   echo -e "${YELLOW}   💡 GitHub：https://github.com/yimouleng/Auto-Seedbox-PT ${NC}"
