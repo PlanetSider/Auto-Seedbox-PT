@@ -3,7 +3,7 @@
  * 由 Nginx 底层动态注入
  */
 (function() {
-    console.log("🚀 [ASP] MediaInfo v1.1 已加载 (优化 PT 发种体验)！");
+    console.log("🚀 [ASP] MediaInfo v1.2 已加载 (原始文本复制模式)！");
     
     // 兼容剪贴板复制逻辑
     const copyText = (text) => {
@@ -57,8 +57,10 @@
     const openMediaInfo = (fileName) => {
         let fullPath = (getCurrentPath() + '/' + fileName).replace(/\/\//g, '/');
         if (typeof Swal === 'undefined') {
-            alert('UI组件正在加载，请稍后再试...'); return;
+            alert('UI组件正在加载，请稍后再试...');
+            return;
         }
+
         Swal.fire({
             title: '解析中...',
             text: '正在读取底层媒体轨道信息',
@@ -69,11 +71,12 @@
         fetch(`/api/mi?file=${encodeURIComponent(fullPath)}`)
         .then(r => r.json())
         .then(data => {
-            if(data.error) throw new Error(data.error);
-            
-            let rawText = "";
+            if (data.error) throw new Error(data.error);
+
+            const originalText = (data.raw_text || '').trim();
+            let fallbackText = "";
             let html = `<style>
-                .mi-box { text-align:left; font-size:13px; background:#1e1e1e; color:#d4d4d4; padding:15px; border-radius:8px; max-height:550px; overflow-y:auto; font-family: 'Consolas', 'Courier New', monospace; user-select:text;}
+                .mi-box { text-align:left; font-size:13px; background:#1e1e1e; color:#d4d4d4; padding:15px; border-radius:8px; max-height:550px; overflow-y:auto; font-family: 'Consolas', 'Courier New', monospace; user-select:text; white-space:pre-wrap; }
                 .mi-track { margin-bottom: 20px; }
                 .mi-track-header { font-size: 15px; font-weight: bold; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #444; }
                 .mi-Video .mi-track-header { color: #569cd6; border-bottom-color: #569cd6; }
@@ -81,39 +84,49 @@
                 .mi-Text .mi-track-header { color: #ce9178; border-bottom-color: #ce9178; }
                 .mi-General .mi-track-header { color: #dcdcaa; border-bottom-color: #dcdcaa; }
                 .mi-Menu .mi-track-header { color: #c586c0; border-bottom-color: #c586c0; }
-                .mi-item { display: flex; padding: 3px 0; line-height: 1.5; border-bottom: 1px dashed #333;}
+                .mi-item { display: flex; padding: 3px 0; line-height: 1.5; border-bottom: 1px dashed #333; }
                 .mi-key { width: 180px; flex-shrink: 0; color: #9cdcfe; }
                 .mi-val { flex-grow: 1; color: #cecece; word-wrap: break-word; }
+                .mi-raw { margin: 0; white-space: pre-wrap; word-break: break-word; }
             </style><div class="mi-box">`;
 
-            if (data.media && data.media.track) {
+            if (originalText) {
+                const escapeHtml = (s) => String(s)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+
+                html += `<pre class="mi-raw">${escapeHtml(originalText)}</pre>`;
+                fallbackText = originalText;
+            } else if (data.media && data.media.track) {
                 data.media.track.forEach(t => {
                     let type = t['@type'] || 'Unknown';
-                    rawText += `${type}\n`;
+                    fallbackText += `${type}\n`;
                     html += `<div class="mi-track mi-${type}"><div class="mi-track-header">${type}</div>`;
 
-                    for (let k in t) { 
+                    for (let k in t) {
                         if (k === '@type') continue;
                         let val = t[k];
                         if (typeof val === 'object') val = JSON.stringify(val);
-                        
+
                         let paddedKey = String(k).padEnd(32, ' ');
-                        rawText += `${paddedKey}: ${val}\n`;
+                        fallbackText += `${paddedKey}: ${val}\n`;
 
                         html += `<div class="mi-item"><div class="mi-key">${k}</div><div class="mi-val">${val}</div></div>`;
                     }
-                    rawText += `\n`;
+                    fallbackText += `\n`;
                     html += `</div>`;
                 });
-            } else { 
-                rawText = JSON.stringify(data, null, 2); 
-                html += `<pre>${rawText}</pre>`;
+            } else {
+                fallbackText = JSON.stringify(data, null, 2);
+                html += `<pre class="mi-raw">${fallbackText}</pre>`;
             }
+
             html += `</div>`;
-            
-            Swal.fire({ 
-                title: fileName, 
-                html: html, 
+
+            Swal.fire({
+                title: fileName,
+                html: html,
                 width: '850px',
                 showCancelButton: true,
                 showDenyButton: true,
@@ -124,24 +137,24 @@
                 denyButtonText: '🏷️ 复制 IM标签文本',
                 cancelButtonText: '关闭',
                 preConfirm: () => {
-                    let textToCopy = rawText.trim();
+                    let textToCopy = (originalText || fallbackText || '').trim();
                     copyText(textToCopy).then(() => {
                         let btn = Swal.getConfirmButton();
-                        let originalText = btn.innerHTML;
+                        let originalBtnText = btn.innerHTML;
                         btn.innerHTML = '✅ 纯文本复制成功！';
-                        setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+                        setTimeout(() => { btn.innerHTML = originalBtnText; }, 2000);
                     }).catch(() => {
                         alert('复制失败，请手动选中上方文本进行复制');
                     });
                     return false;
                 },
                 preDeny: () => {
-                    let textToCopy = `[hide=mediainfo]\n${rawText.trim()}\n[/hide]`;
+                    let textToCopy = `[hide=mediainfo]\n${(originalText || fallbackText || '').trim()}\n[/hide]`;
                     copyText(textToCopy).then(() => {
                         let btn = Swal.getDenyButton();
-                        let originalText = btn.innerHTML;
+                        let originalBtnText = btn.innerHTML;
                         btn.innerHTML = '✅ Mediainfo 复制成功！';
-                        setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+                        setTimeout(() => { btn.innerHTML = originalBtnText; }, 2000);
                     }).catch(() => {
                         alert('复制失败，请手动选中上方文本进行复制');
                     });
@@ -189,7 +202,7 @@
     let observerTimer = null;
     const observer = new MutationObserver(() => {
         if (observerTimer) clearTimeout(observerTimer);
-        
+
         observerTimer = setTimeout(() => {
             let targetFile = "";
             if (lastRightClickedFile) {
@@ -215,14 +228,14 @@
                         btn.setAttribute('title', 'MediaInfo');
                         btn.setAttribute('aria-label', 'MediaInfo');
                         btn.innerHTML = '<i class="material-icons">movie</i><span>MediaInfo</span>';
-                        
+
                         btn.onclick = function(ev) {
                             ev.preventDefault();
                             ev.stopPropagation();
-                            document.body.click(); 
+                            document.body.click();
                             openMediaInfo(targetFile);
                         };
-                        
+
                         let anchorBtn = getAnchorButton(menu);
                         if (anchorBtn) {
                             anchorBtn.insertAdjacentElement('afterend', btn);
