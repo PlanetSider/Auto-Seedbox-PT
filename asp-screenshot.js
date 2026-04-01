@@ -39,9 +39,8 @@
     };
 
     const isMedia = (file) => file && file.match(
-    /\.(mp4|mkv|avi|ts|mts|m2ts|mov|webm|mpg|mpeg|wmv|flv|vob|iso|m4v|mpv|tp|trp|evo|rm|rmvb|asf|ogm|ogv|3gp|f4v|divx)$/i
+  /\.(mp4|mkv|avi|ts|mts|m2ts|mov|webm|mpg|mpeg|wmv|flv|vob|iso|m4v|mpv|tp|trp|evo|rm|rmvb|asf|ogm|ogv|3gp|f4v|divx)$/i
 );
-
     function clamp(v, lo, hi, fallback) {
         v = parseInt(v, 10);
         if (!Number.isFinite(v)) return fallback;
