@@ -121,7 +121,7 @@
                 denyButtonColor: '#28a745',
                 cancelButtonColor: '#555',
                 confirmButtonText: '📋 纯文本',
-                denyButtonText: '🏷️ 复制 BBCode',
+                denyButtonText: '🏷️ 复制 IM标签文本',
                 cancelButtonText: '关闭',
                 preConfirm: () => {
                     let textToCopy = rawText.trim();
@@ -136,11 +136,11 @@
                     return false;
                 },
                 preDeny: () => {
-                    let textToCopy = `[quote]\n${rawText.trim()}\n[/quote]`;
+                    let textToCopy = `[hide=mediainfo]\n${rawText.trim()}\n[/hide]`;
                     copyText(textToCopy).then(() => {
                         let btn = Swal.getDenyButton();
                         let originalText = btn.innerHTML;
-                        btn.innerHTML = '✅ BBCode 复制成功！';
+                        btn.innerHTML = '✅ Mediainfo 复制成功！';
                         setTimeout(() => { btn.innerHTML = originalText; }, 2000);
                     }).catch(() => {
                         alert('复制失败，请手动选中上方文本进行复制');
